@@ -18,9 +18,9 @@ func TestPlumbRecv(t *testing.T) {
 
 		t.Logf("%+v", msg)
 
-    if msg.Attr["exit"] == "true" {
-      break
-    }
+		if msg.Attr["exit"] == "true" {
+			break
+		}
 	}
 
 }

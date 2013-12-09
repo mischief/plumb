@@ -67,7 +67,7 @@ func ParseAttr(line string) (PlumbAttr, error) {
 		spl[1] = strings.TrimLeft(spl[1], `"`)
 		spl[1] = strings.TrimRight(spl[1], `"`)
 
-		pa[spl[0]]=spl[1]
+		pa[spl[0]] = spl[1]
 
 	}
 

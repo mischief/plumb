@@ -2,11 +2,13 @@
 package plumb
 
 import (
+	"bufio"
+	"bytes"
 	"code.google.com/p/goplan9/plan9/client"
-  "fmt"
-  "bytes"
-  "bufio"
-  "strconv"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
 )
 
 // A plumber message
@@ -15,7 +17,7 @@ type PlumbMsg struct {
 	Dst   string
 	Wdir  string
 	Type  string
-  Attr  PlumbAttr
+	Attr  PlumbAttr
 	Ndata int
 	Data  string
 }
@@ -25,10 +27,10 @@ type PlumbAttr map[string]string
 
 // A plumber connection
 type Plumber struct {
-  // fs mount
+	// fs mount
 	fsys *client.Fsys
-  // read fid
-	fid  *client.Fid
+	// read fid
+	fid *client.Fid
 }
 
 // Open a plumber connection to the plumber. mode should be
@@ -39,17 +41,20 @@ func PlumbOpen(name string, mode uint8) (*Plumber, error) {
 
 	p.fsys, err = client.MountService("plumb")
 	if err != nil {
-    return nil, fmt.Errorf("mount plumb: %s", err)
+		return nil, fmt.Errorf("mount plumb: %s", err)
 	}
 
 	p.fid, err = p.fsys.Open(name, mode)
 	if err != nil {
+		return nil, fmt.Errorf("open %s: %s", name, err)
+
 		/* try create */
-    return nil, fmt.Errorf("open %s: %s", name, err)
+    /*
 		p.fid, err = p.fsys.Create(name, mode, 0600)
 		if err != nil {
-      return nil, fmt.Errorf("create %s: %s", name, err)
+			return nil, fmt.Errorf("create %s: %s", name, err)
 		}
+    */
 	}
 
 	return p, nil
@@ -58,49 +63,42 @@ func PlumbOpen(name string, mode uint8) (*Plumber, error) {
 // Read one plumber message
 func (p *Plumber) Recv() (*PlumbMsg, error) {
 	msg := &PlumbMsg{}
-	data := make([]byte, 8192)
+	indata := make([]byte, 8192)
 
-	n, err := p.fid.Read(data)
-  if n <= 0 {
-    return nil, err
-  }
+	n, err := p.fid.Read(indata)
+	if n <= 0 {
+		return nil, err
+	}
 
-  buf := bytes.NewBuffer(data)
-  scan := bufio.NewScanner(buf)
+	buf := bytes.NewBuffer(indata)
+	rd := bufio.NewReader(buf)
 
-  if scan.Scan() {
-    msg.Src = scan.Text()
-  }
+	msg.Src, _ = rd.ReadString('\n')
+	msg.Src = strings.TrimSpace(msg.Src)
 
-  if scan.Scan() {
-    msg.Dst = scan.Text()
-  }
+	msg.Dst, _ = rd.ReadString('\n')
+	msg.Dst = strings.TrimSpace(msg.Dst)
 
-  if scan.Scan() {
-    msg.Wdir = scan.Text()
-  }
+	msg.Wdir, _ = rd.ReadString('\n')
+	msg.Wdir = strings.TrimSpace(msg.Wdir)
 
-  if scan.Scan() {
-    msg.Type = scan.Text()
-  }
+	msg.Type, _ = rd.ReadString('\n')
+	msg.Type = strings.TrimSpace(msg.Type)
 
-  if scan.Scan() {
-    attr := scan.Text()
-    msg.Attr, _ = ParseAttr(attr)
-  }
+	attr, _ := rd.ReadString('\n')
+	msg.Attr, _ = ParseAttr(strings.TrimSpace(attr))
 
-  if scan.Scan() {
-    ndata := scan.Text()
-    msg.Ndata, _ = strconv.Atoi(ndata)
-  }
+	ndata, _ := rd.ReadString('\n')
+	msg.Ndata, _ = strconv.Atoi(strings.TrimSpace(ndata))
 
-  for scan.Scan() {
-    msg.Data += scan.Text() + "\n"
-  }
+	data := new(bytes.Buffer)
+	io.Copy(data, rd)
 
-  if err = scan.Err(); err != nil {
-    return nil, err
-  }
+	msg.Data = data.String()
+
+	if err != nil {
+		return nil, err
+	}
 
 	return msg, nil
 }
