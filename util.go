@@ -47,7 +47,7 @@ func scanStrings(data []byte, atEOF bool) (advance int, token []byte, err error)
 }
 
 // parse attributes, unquoting values as necessary
-func parseAttr(line string) (Attr, error) {
+func ParseAttr(line string) (Attr, error) {
 	pa := make(map[string]string)
 
 	scanw := bufio.NewScanner(strings.NewReader(line))

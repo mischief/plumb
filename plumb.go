@@ -115,7 +115,7 @@ func (p *Port) Recv() (*Msg, error) {
 	msg.Type = strings.TrimSpace(msg.Type)
 
 	attr, _ := rd.ReadString('\n')
-	msg.Attr, _ = parseAttr(strings.TrimSpace(attr))
+	msg.Attr, _ = ParseAttr(strings.TrimSpace(attr))
 
 	ndatastr, _ := rd.ReadString('\n')
 	ndata, _ := strconv.Atoi(strings.TrimSpace(ndatastr))
