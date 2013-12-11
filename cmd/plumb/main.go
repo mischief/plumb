@@ -10,7 +10,7 @@ import (
 	"os"
 )
 
-var p = flag.String("p", "send", "plubmfile")
+var p = flag.String("p", "send", "plumbfile")
 var a = flag.String("a", "", "attributes")
 var s = flag.String("s", "goplumb", "source")
 var d = flag.String("d", "", "destination port")
