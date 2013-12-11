@@ -73,3 +73,8 @@ func ParseAttr(line string) (PlumbAttr, error) {
 
 	return pa, nil
 }
+
+// XXX: FIXME
+func quote(str string) string {
+	return ""
+}
