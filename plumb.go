@@ -10,43 +10,22 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"sync"
 )
 
-// A plumber message
-type PlumbMsg struct {
-	Src   string
-	Dst   string
-	Wdir  string
-	Type  string
-	Attr  PlumbAttr
-	Ndata int
-	Data  []byte
-}
+var once sync.Once
+var fsys *client.Fsys
+var fsysErr error
 
-// Pack a message into a byte slice
-func (pm PlumbMsg) Pack() []byte {
-	out := new(bytes.Buffer)
-
-	fmt.Fprintf(out, "%s\n", pm.Src)
-	fmt.Fprintf(out, "%s\n", pm.Dst)
-	fmt.Fprintf(out, "%s\n", pm.Wdir)
-	fmt.Fprintf(out, "%s\n", pm.Type)
-	fmt.Fprintf(out, "%s\n", pm.Attr.Pack())
-
-	if pm.Ndata <= 0 {
-		pm.Ndata = len(pm.Data)
-	}
-	fmt.Fprintf(out, "%d\n", pm.Ndata)
-
-	fmt.Fprintf(out, "%s", pm.Data[:pm.Ndata])
-	return out.Bytes()
+func mountPlumb() {
+	fsys, fsysErr = client.MountService("plumb")
 }
 
 // Attributes attached to a plumber message
-type PlumbAttr map[string]string
+type Attr map[string]string
 
 // Pack attributes into a byte slice
-func (pa PlumbAttr) Pack() []byte {
+func (pa Attr) pack() []byte {
 	var space bool
 	out := new(bytes.Buffer)
 
@@ -55,55 +34,67 @@ func (pa PlumbAttr) Pack() []byte {
 			out.WriteRune(' ')
 		}
 		fmt.Fprintf(out, "%s=%s", k, quote(v))
+
+		space = true
 	}
 
 	return out.Bytes()
 }
 
-// A plumber connection
-type Plumber struct {
-	// fs mount
-	fsys *client.Fsys
-	// read fid
-	fid *client.Fid
+// A plumber message
+type Msg struct {
+	Src  string
+	Dst  string
+	Wdir string
+	Type string
+	Attr Attr
+	Data []byte
 }
 
-// Open a plumber port. mode should be OREAD for ports, and OWRITE for "send".
-func PlumbOpen(name string, mode uint8) (*Plumber, error) {
-	var err error
-	p := &Plumber{}
+// Pack a message into a byte slice
+func (pm Msg) pack() []byte {
+	out := new(bytes.Buffer)
 
-	p.fsys, err = client.MountService("plumb")
-	if err != nil {
-		return nil, fmt.Errorf("mount plumb: %s", err)
+	fmt.Fprintf(out, "%s\n%s\n%s\n%s\n%s\n", pm.Src, pm.Dst, pm.Wdir, pm.Type, pm.Attr.pack())
+	ln := len(pm.Data)
+	fmt.Fprintf(out, "%d\n%s", ln, pm.Data[:ln])
+
+	return out.Bytes()
+}
+
+func (pm Msg) String() string {
+	return fmt.Sprintf("Dst: %s Src: %s Wdir: %s Type: %s Attr: %s Ndata: %d Data: %q",
+		pm.Src, pm.Dst, pm.Wdir, pm.Type, pm.Attr.pack(), len(pm.Data), pm.Data)
+}
+
+// A plumber connection
+type Port client.Fid
+
+// Open a plumber port. mode should be OREAD for ports, and OWRITE for "send".
+func Open(name string, mode uint8) (*Port, error) {
+	once.Do(mountPlumb)
+	if fsysErr != nil {
+		return nil, fsysErr
 	}
 
-	if err := p.fsys.Access("send", plan9.AWRITE); err != nil {
+	if err := fsys.Access("send", plan9.AWRITE); err != nil {
 		return nil, err
 	}
 
-	p.fid, err = p.fsys.Open(name, mode)
-	if err != nil {
+	if fid, err := fsys.Open(name, mode); err != nil {
 		return nil, fmt.Errorf("open %s: %s", name, err)
-
-		/* try create */
-		/*
-			p.fid, err = p.fsys.Create(name, mode, 0600)
-			if err != nil {
-				return nil, fmt.Errorf("create %s: %s", name, err)
-			}
-		*/
+	} else {
+		return (*Port)(fid), nil
 	}
-
-	return p, nil
 }
 
 // Read one plumber message. Plumber port must be opened with mode OREAD.
-func (p *Plumber) Recv() (*PlumbMsg, error) {
-	msg := &PlumbMsg{}
+func (p *Port) Recv() (*Msg, error) {
+	msg := &Msg{}
 	indata := make([]byte, 8192)
 
-	n, err := p.fid.Read(indata)
+	fid := (*client.Fid)(p)
+	n, err := fid.Read(indata)
 	if n <= 0 {
 		return nil, err
 	}
@@ -124,16 +115,16 @@ func (p *Plumber) Recv() (*PlumbMsg, error) {
 	msg.Type = strings.TrimSpace(msg.Type)
 
 	attr, _ := rd.ReadString('\n')
-	msg.Attr, _ = ParseAttr(strings.TrimSpace(attr))
+	msg.Attr, _ = parseAttr(strings.TrimSpace(attr))
 
-	ndata, _ := rd.ReadString('\n')
-	msg.Ndata, _ = strconv.Atoi(strings.TrimSpace(ndata))
+	ndatastr, _ := rd.ReadString('\n')
+	ndata, _ := strconv.Atoi(strings.TrimSpace(ndatastr))
 
 	data := new(bytes.Buffer)
 	io.Copy(data, rd)
 
 	msg.Data = data.Bytes()
-	msg.Data = msg.Data[:msg.Ndata]
+	msg.Data = msg.Data[:ndata]
 
 	if err != nil {
 		return nil, err
@@ -143,10 +134,11 @@ func (p *Plumber) Recv() (*PlumbMsg, error) {
 }
 
 // Send a plumber message. Plumber must be opened with "send" and mode OWRITE.
-func (p *Plumber) Send(m *PlumbMsg) error {
-	msg := m.Pack()
+func (p *Port) Send(m *Msg) error {
+	msg := m.pack()
 
-	if _, err := p.fid.Write(msg); err != nil {
+	fid := (*client.Fid)(p)
+	if _, err := fid.Write(msg); err != nil {
 		return err
 	}
 

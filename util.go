@@ -2,6 +2,7 @@ package plumb
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"strings"
 	"unicode"
@@ -45,13 +46,9 @@ func scanStrings(data []byte, atEOF bool) (advance int, token []byte, err error)
 	return 0, nil, nil
 }
 
-func ParseAttr(line string) (PlumbAttr, error) {
+// parse attributes, unquoting values as necessary
+func parseAttr(line string) (Attr, error) {
 	pa := make(map[string]string)
-
-	// chop off the comment
-	if idx := strings.Index(line, "#"); idx != -1 {
-		line = line[:idx]
-	}
 
 	scanw := bufio.NewScanner(strings.NewReader(line))
 	scanw.Split(scanStrings)
@@ -64,8 +61,8 @@ func ParseAttr(line string) (PlumbAttr, error) {
 			return pa, fmt.Errorf("invalid tuple %q", tpstr)
 		}
 
-		spl[1] = strings.TrimLeft(spl[1], `"`)
-		spl[1] = strings.TrimRight(spl[1], `"`)
+		spl[1] = strings.TrimLeft(spl[1], `'`)
+		spl[1] = strings.TrimRight(spl[1], `'`)
 
 		pa[spl[0]] = spl[1]
 
@@ -74,7 +71,24 @@ func ParseAttr(line string) (PlumbAttr, error) {
 	return pa, nil
 }
 
-// XXX: FIXME
+// quote attribute value
 func quote(str string) string {
-	return ""
+	if !strings.ContainsAny(str, " '=\t") {
+		return str
+	}
+
+	var out bytes.Buffer
+
+	out.WriteRune('\'')
+
+	for _, r := range str {
+		out.WriteRune(r)
+		if r == '\'' {
+			out.WriteRune(r)
+		}
+	}
+
+	out.WriteRune('\'')
+
+	return out.String()
 }
