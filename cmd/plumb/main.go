@@ -34,10 +34,6 @@ func main() {
 	msg.Type = *t
 	msg.Attr, _ = plumb.ParseAttr(*a)
 
-	if _, ok := msg.Attr["action"]; !ok {
-		msg.Attr["action"] = "showdata"
-	}
-
 	if *w == "" {
 		wd, _ := os.Getwd()
 		msg.Wdir = wd
@@ -46,6 +42,10 @@ func main() {
 	}
 
 	if *i == true {
+		if _, ok := msg.Attr["action"]; !ok {
+			msg.Attr["action"] = "showdata"
+		}
+
 		data := new(bytes.Buffer)
 		io.Copy(data, os.Stdin)
 		msg.Data = data.Bytes()
